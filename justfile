@@ -16,6 +16,10 @@ install prefix="":
 uninstall:
     uv pip uninstall djehuty
 
+# Lint and format changed Python files (compared to main branch)
+lint:
+    uv run --extra dev ruff format .
+
 # Build source distribution
 sdist:
     uv build --sdist
@@ -99,7 +103,7 @@ docs-clean:
 
 # Clean all build artifacts and dev environment
 clean: docs-clean
-    rm -rf build/ dist/ src/djehuty.egg-info/ pylint.log
+    rm -rf build/ dist/ src/djehuty.egg-info/
     {{ dev_compose }} down -v 2>/dev/null || true
 
 # Run Coverity scan
