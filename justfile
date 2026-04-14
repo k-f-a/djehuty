@@ -110,6 +110,12 @@ clean: docs-clean
 coverity-report:
     cov-build --dir cov-int --no-command --fs-capture-search .
 
+# --- Tests ---
+
+# Run tests. Use `just test` or `just test <subset>` to run a subset.
+test *suite:
+    uv run --extra dev pytest {{ if suite == "" { "tests/" } else { "tests/" + suite } }} -v
+
 # --- Development environment ---
 
 dev_compose := "docker compose -f docker/docker-compose.dev.yml"
