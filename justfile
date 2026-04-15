@@ -113,3 +113,60 @@ dev_compose := "docker compose -f docker/docker-compose.dev.yml"
 # Start development environment (auto-initializes on first run)
 dev:
     {{ dev_compose }} up --build
+
+# Stop development environment
+dev-stop:
+    {{ dev_compose }} stop
+
+# Restore a Virtuoso database backup into the dev environment
+# Usage: just restore-db path/to/prod-2025-10-09_#1.bp
+# Usage: just restore-db path/to/prod-2025-10-09_#1.bp https://data.4tu.nl
+restore-db backup_file state_graph="https://data.4tu.nl":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    BACKUP_FILE="$(cd "$(dirname "{{ backup_file }}")" && pwd)/$(basename "{{ backup_file }}")"
+    if [ ! -f "${BACKUP_FILE}" ]; then
+        echo "Error: Backup file '${BACKUP_FILE}' not found"
+        exit 1
+    fi
+
+    # Extract restore name: "prod-2025-10-09_#1.bp" -> "prod-2025-10-09_#"
+    BACKUP_BASENAME="$(basename "${BACKUP_FILE}")"
+    RESTORE_NAME="$(echo "${BACKUP_BASENAME}" | sed 's/[0-9]*\.bp$//')"
+    echo "Backup file: ${BACKUP_FILE}"
+    echo "Restore name: ${RESTORE_NAME}"
+    echo "State graph:  {{ state_graph }}"
+
+    echo "==> Stopping all services..."
+    {{ dev_compose }} stop
+
+    echo "==> Removing old database files (keeping virtuoso.ini)..."
+    {{ dev_compose }} run --rm --no-deps --entrypoint sh virtuoso -c \
+        'rm -f /database/virtuoso.db /database/virtuoso.lck /database/virtuoso.log \
+               /database/virtuoso.pxa /database/virtuoso.trx /database/virtuoso-temp.db'
+
+    echo "==> Restoring backup..."
+    {{ dev_compose }} run --rm --no-deps \
+        -v "${BACKUP_FILE}:/backups/${BACKUP_BASENAME}:ro" \
+        --entrypoint /opt/virtuoso-opensource/bin/virtuoso-t \
+        virtuoso \
+        +configfile /database/virtuoso.ini \
+        +restore-backup "${RESTORE_NAME}" \
+        +backup-dirs /backups \
+        +foreground
+
+    echo "==> Updating state-graph in dev config..."
+    DEV_CONFIG="etc/djehuty/djehuty-dev-config.xml"
+    # GNU sed (Linux) uses -i without argument, BSD sed (macOS) requires -i ''
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i 's|<state-graph>.*</state-graph>|<state-graph>{{ state_graph }}</state-graph>|' "${DEV_CONFIG}"
+    else
+        sed -i '' 's|<state-graph>.*</state-graph>|<state-graph>{{ state_graph }}</state-graph>|' "${DEV_CONFIG}"
+    fi
+    echo "    Set state-graph to: {{ state_graph }}"
+
+    echo "==> Starting all services..."
+    {{ dev_compose }} up -d --wait
+
+    echo "==> Done. Virtuoso is ready with restored data."
